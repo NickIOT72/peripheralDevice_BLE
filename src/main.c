@@ -299,7 +299,7 @@ static int uart_init(void)
 
 	if (tx) {
 		pos = snprintf(tx->data, sizeof(tx->data),
-			       "Starting Nordic UART service example\r\n");
+			       "");//"Starting Peripheral Device Service\r\n
 
 		if ((pos < 0) || (pos >= sizeof(tx->data))) {
 			k_free(rx);
@@ -346,7 +346,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 	current_conn = bt_conn_ref(conn);
 
-	dk_set_led_on(CON_STATUS_LED);
+	//dk_set_led_on(CON_STATUS_LED);
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
@@ -365,7 +365,7 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 	if (current_conn) {
 		bt_conn_unref(current_conn);
 		current_conn = NULL;
-		dk_set_led_off(CON_STATUS_LED);
+		//dk_set_led_off(CON_STATUS_LED);
 	}
 }
 
@@ -469,7 +469,7 @@ static void bt_receive_cb(struct bt_conn *conn, const uint8_t *const data,
 	char addr[BT_ADDR_LE_STR_LEN] = {0};
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, ARRAY_SIZE(addr));
-
+	//dk_set_led(2, (++blink_led) % 2);
 	LOG_INF("Received data from: %s", addr);
 
 	for (uint16_t pos = 0; pos != len;) {
@@ -500,6 +500,37 @@ static void bt_receive_cb(struct bt_conn *conn, const uint8_t *const data,
 			tx->data[tx->len] = '\n';
 			tx->len++;
 		}
+
+		/*
+		struct uart_data_t *buf = k_malloc(sizeof(*buf));
+
+		if (!buf) {
+			LOG_WRN("Not able to allocate UART send data buffer");
+		}
+
+		if (buf) {
+		uint16_t pos1 = snprintf(buf->data, sizeof(buf->data),
+			       "Data Received: ");
+
+		if ((pos1 < 0) || (pos1 >= sizeof(buf->data))) {
+			k_free(buf);
+			k_free(tx);
+			LOG_ERR("snprintf returned %d", pos1);
+		}
+
+		buf->len = pos1;
+	} else {
+		k_free(buf);
+		k_free(tx);
+	}
+
+	err = uart_tx(uart, buf->data, buf->len, SYS_FOREVER_MS);
+	if (err) {
+		k_free(buf);
+		k_free(tx);
+		LOG_ERR("Cannot display welcome message (err: %d)", err);
+	}
+*/
 
 		err = uart_tx(uart, tx->data, tx->len, SYS_FOREVER_MS);
 		if (err) {
@@ -621,11 +652,11 @@ int main(void)
 		LOG_ERR("Advertising failed to start (err %d)", err);
 		return 0;
 	}
-
+	/*
 	for (;;) {
 		dk_set_led(RUN_STATUS_LED, (++blink_status) % 2);
 		k_sleep(K_MSEC(RUN_LED_BLINK_INTERVAL));
-	}
+	}*/
 }
 
 void ble_write_thread(void)
@@ -637,7 +668,7 @@ void ble_write_thread(void)
 		/* Wait indefinitely for data to be sent over bluetooth */
 		struct uart_data_t *buf = k_fifo_get(&fifo_uart_rx_data,
 						     K_FOREVER);
-
+		printk("data to send: %s", buf->data);
 		if (bt_nus_send(NULL, buf->data, buf->len)) {
 			LOG_WRN("Failed to send data over BLE connection");
 		}
