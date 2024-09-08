@@ -346,6 +346,32 @@ static void connected(struct bt_conn *conn, uint8_t err)
 
 	current_conn = bt_conn_ref(conn);
 
+	struct uart_data_t *buf = k_malloc(sizeof(*buf));
+
+		if (!buf) {
+			LOG_WRN("Not able to allocate UART send data buffer");
+		}
+
+		if (buf) {
+		uint16_t pos1 = snprintf(buf->data, sizeof(buf->data),
+			       "Device Connectedd\r\n");
+
+		if ((pos1 < 0) || (pos1 >= sizeof(buf->data))) {
+			k_free(buf);
+			LOG_ERR("snprintf returned %d", pos1);
+		}
+
+		buf->len = pos1;
+	} else {
+		k_free(buf);
+	}
+
+	err = uart_tx(uart, buf->data, buf->len, SYS_FOREVER_MS);
+	if (err) {
+		k_free(buf);
+		LOG_ERR("Cannot display welcome message (err: %d)", err);
+	}
+
 	//dk_set_led_on(CON_STATUS_LED);
 }
 
@@ -603,10 +629,10 @@ static void configure_gpio(void)
 
 int main(void)
 {
-	int blink_status = 0;
+	//int blink_status = 0;
 	int err = 0;
 
-	configure_gpio();
+	//configure_gpio();
 
 	err = uart_init();
 	if (err) {
