@@ -345,7 +345,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	LOG_INF("Connected %s", addr);
 
 	current_conn = bt_conn_ref(conn);
-
+	/*
 	struct uart_data_t *buf = k_malloc(sizeof(*buf));
 
 		if (!buf) {
@@ -370,7 +370,7 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	if (err) {
 		k_free(buf);
 		LOG_ERR("Cannot display welcome message (err: %d)", err);
-	}
+	}*/
 
 	//dk_set_led_on(CON_STATUS_LED);
 }
@@ -609,7 +609,7 @@ void button_changed(uint32_t button_state, uint32_t has_changed)
 	}
 }
 #endif /* CONFIG_BT_NUS_SECURITY_ENABLED */
-
+/*
 static void configure_gpio(void)
 {
 	int err;
@@ -619,13 +619,13 @@ static void configure_gpio(void)
 	if (err) {
 		LOG_ERR("Cannot init buttons (err: %d)", err);
 	}
-#endif /* CONFIG_BT_NUS_SECURITY_ENABLED */
+#endif //CONFIG_BT_NUS_SECURITY_ENABLED
 
 	err = dk_leds_init();
 	if (err) {
 		LOG_ERR("Cannot init LEDs (err: %d)", err);
 	}
-}
+}*/
 
 int main(void)
 {
