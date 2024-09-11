@@ -86,6 +86,82 @@ UART_ASYNC_ADAPTER_INST_DEFINE(async_adapter);
 static const struct device *const async_adapter;
 #endif
 
+/* STEP 3.2.1 - Define advertising parameter for no Accept List */
+#define BT_LE_ADV_CONN_NO_ACCEPT_LIST                                                              \
+	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_ONE_TIME,                        \
+			BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL)
+/* STEP 3.2.2 - Define advertising parameter for when Accept List is used */
+#define BT_LE_ADV_CONN_ACCEPT_LIST                                                                 \
+	BT_LE_ADV_PARAM(BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_FILTER_CONN |                    \
+				BT_LE_ADV_OPT_ONE_TIME,                                            \
+			BT_GAP_ADV_FAST_INT_MIN_2, BT_GAP_ADV_FAST_INT_MAX_2, NULL)
+
+static bool app_button_state;
+
+/* STEP 3.3.1 - Define the callback to add addreses to the Accept List */
+static void setup_accept_list_cb(const struct bt_bond_info *info, void *user_data)
+{
+	int *bond_cnt = user_data;
+
+	if ((*bond_cnt) < 0) {
+		return;
+	}
+
+	int err = bt_le_filter_accept_list_add(&info->addr);
+	LOG_INF("Added following peer to accept list: %x %x\n", info->addr.a.val[0],
+		info->addr.a.val[1]);
+	if (err) {
+		LOG_INF("Cannot add peer to filter accept list (err: %d)\n", err);
+		(*bond_cnt) = -EIO;
+	} else {
+		(*bond_cnt)++;
+	}
+}
+
+/* STEP 3.3.2 - Define the function to loop through the bond list */
+static int setup_accept_list(uint8_t local_id)
+{
+	int err = bt_le_filter_accept_list_clear();
+
+	if (err) {
+		LOG_INF("Cannot clear accept list (err: %d)\n", err);
+		return err;
+	}
+
+	int bond_cnt = 0;
+
+	bt_foreach_bond(local_id, setup_accept_list_cb, &bond_cnt);
+
+	return bond_cnt;
+}
+
+/* STEP 3.4.1 - Define the function to advertise with the Accept List */
+void advertise_with_acceptlist(struct k_work *work)
+{
+	int err = 0;
+	int allowed_cnt = setup_accept_list(BT_ID_DEFAULT);
+	if (allowed_cnt < 0) {
+		LOG_INF("Acceptlist setup failed (err:%d)\n", allowed_cnt);
+	} else {
+		if (allowed_cnt == 0) {
+			LOG_INF("Advertising with no Accept list \n");
+			err = bt_le_adv_start(BT_LE_ADV_CONN_NO_ACCEPT_LIST, ad, ARRAY_SIZE(ad), sd,
+					      ARRAY_SIZE(sd));
+		} else {
+			LOG_INF("Acceptlist setup number  = %d \n", allowed_cnt);
+			err = bt_le_adv_start(BT_LE_ADV_CONN_ACCEPT_LIST, ad, ARRAY_SIZE(ad), sd,
+					      ARRAY_SIZE(sd));
+		}
+		if (err) {
+			LOG_INF("Advertising failed to start (err %d)\n", err);
+			return;
+		}
+		LOG_INF("Advertising successfully started\n");
+	}
+}
+
+K_WORK_DEFINE(advertise_acceptlist_work, advertise_with_acceptlist);
+
 static void uart_cb(const struct device *dev, struct uart_event *evt, void *user_data)
 {
 	ARG_UNUSED(dev);
@@ -345,16 +421,16 @@ static void connected(struct bt_conn *conn, uint8_t err)
 	LOG_INF("Connected %s", addr);
 
 	current_conn = bt_conn_ref(conn);
-	/*
-	struct uart_data_t *buf = k_malloc(sizeof(*buf));
+	
+	/*struct uart_data_t *buf = k_malloc(sizeof(*buf));
 
-		if (!buf) {
+	if (!buf) {
 			LOG_WRN("Not able to allocate UART send data buffer");
 		}
 
 		if (buf) {
 		uint16_t pos1 = snprintf(buf->data, sizeof(buf->data),
-			       "Device Connectedd\r\n");
+			       "D: %s \r\n",addr);
 
 		if ((pos1 < 0) || (pos1 >= sizeof(buf->data))) {
 			k_free(buf);
@@ -393,6 +469,8 @@ static void disconnected(struct bt_conn *conn, uint8_t reason)
 		current_conn = NULL;
 		//dk_set_led_off(CON_STATUS_LED);
 	}
+
+	k_work_submit(&advertise_acceptlist_work);
 }
 
 #ifdef CONFIG_BT_NUS_SECURITY_ENABLED
@@ -426,6 +504,32 @@ static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
 	char addr[BT_ADDR_LE_STR_LEN];
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	struct uart_data_t *buf = k_malloc(sizeof(*buf));
+
+	if (!buf) {
+			LOG_WRN("Not able to allocate UART send data buffer");
+		}
+
+		if (buf) {
+		uint16_t pos1 = snprintf(buf->data, sizeof(buf->data),
+			      "Passkey for %s: %06u\r\n", addr, passkey);
+
+		if ((pos1 < 0) || (pos1 >= sizeof(buf->data))) {
+			k_free(buf);
+			LOG_ERR("snprintf returned %d", pos1);
+		}
+
+		buf->len = pos1;
+	} else {
+		k_free(buf);
+	}
+
+	int err = uart_tx(uart, buf->data, buf->len, SYS_FOREVER_MS);
+	if (err) {
+		k_free(buf);
+		LOG_ERR("Cannot display welcome message (err: %d)", err);
+	}
 
 	LOG_INF("Passkey for %s: %06u", addr, passkey);
 }
@@ -472,7 +576,6 @@ static void pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
 	LOG_INF("Pairing failed conn: %s, reason %d", addr, reason);
 }
 
-
 static struct bt_conn_auth_cb conn_auth_callbacks = {
 	.passkey_display = auth_passkey_display,
 	.passkey_confirm = auth_passkey_confirm,
@@ -481,7 +584,7 @@ static struct bt_conn_auth_cb conn_auth_callbacks = {
 
 static struct bt_conn_auth_info_cb conn_auth_info_callbacks = {
 	.pairing_complete = pairing_complete,
-	.pairing_failed = pairing_failed
+	.pairing_failed = pairing_failed,
 };
 #else
 static struct bt_conn_auth_cb conn_auth_callbacks;
@@ -640,11 +743,11 @@ int main(void)
 	}
 
 	if (IS_ENABLED(CONFIG_BT_NUS_SECURITY_ENABLED)) {
-		err = bt_conn_auth_cb_register(&conn_auth_callbacks);
+		/*err = bt_conn_auth_cb_register(&conn_auth_callbacks);
 		if (err) {
 			printk("Failed to register authorization callbacks.\n");
 			return 0;
-		}
+		}*/
 
 		err = bt_conn_auth_info_cb_register(&conn_auth_info_callbacks);
 		if (err) {
@@ -672,12 +775,14 @@ int main(void)
 		return 0;
 	}
 
-	err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd,
-			      ARRAY_SIZE(sd));
-	if (err) {
-		LOG_ERR("Advertising failed to start (err %d)", err);
-		return 0;
-	}
+	k_work_submit(&advertise_acceptlist_work);
+
+	//err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad), sd,
+	//		      ARRAY_SIZE(sd));
+	//if (err) {
+	//	LOG_ERR("Advertising failed to start (err %d)", err);
+	//	return 0;
+	//}
 	/*
 	for (;;) {
 		dk_set_led(RUN_STATUS_LED, (++blink_status) % 2);
@@ -694,7 +799,7 @@ void ble_write_thread(void)
 		/* Wait indefinitely for data to be sent over bluetooth */
 		struct uart_data_t *buf = k_fifo_get(&fifo_uart_rx_data,
 						     K_FOREVER);
-		printk("data to send: %s", buf->data);
+		
 		if (bt_nus_send(NULL, buf->data, buf->len)) {
 			LOG_WRN("Failed to send data over BLE connection");
 		}
